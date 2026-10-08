@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://git.example.com/infra/sandbox-vms.git
+    repoURL: https://github.com/flmora/aapautomation.git
     targetRevision: main
     path: vms
   destination:
