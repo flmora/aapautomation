@@ -1,105 +1,139 @@
 # Sandbox com OpenShift GitOps
 
-POC para gerir uma VM e uma página web no OpenShift a partir de um repositório Git. Assume que o cluster está acessível com `oc` e que OpenShift Virtualization já está instalado.
+POC de GitOps num cluster OpenShift Local (CRC). O repositório contém uma VM CirrOS e uma página web. O OpenShift GitOps acompanha a branch `main` e aplica as alterações no namespace `sandbox`.
 
-## 1. Confirmar o ambiente
+## O que está no repositório
 
-```bash
+| Caminho | Função |
+| --- | --- |
+| `bootstrap/namespace.yaml` | Cria `sandbox` e permite que o Argo CD faça a gestão dos recursos. |
+| `bootstrap/gitops-operator.yaml` | Instala o operador OpenShift GitOps. |
+| `bootstrap/virtualization-operator.yaml` | Instala o operador OpenShift Virtualization. |
+| `bootstrap/hyperconverged.yaml` | Ativa o OpenShift Virtualization depois da instalação do operador. |
+| `vms/vm01.yaml` | Define a VM `sandbox-vm01`. |
+| `apps/web/web.yaml` | Define a página, o Deployment, o Service e a Route `sandbox-web`. |
+| `applications/` | Contém as Applications `sandbox-vms` e `sandbox-web`. |
+
+A VM usa um `containerDisk` CirrOS, 1 vCPU e 128 MiB de memória. O disco não é persistente. A página web é servida por nginx a partir de um ConfigMap.
+
+## Recriar o CRC no Windows
+
+Os próximos comandos desta secção são para **PowerShell no Windows**. `crc delete` apaga o cluster atual e todos os recursos que estão nele. Executa-o apenas depois de guardar o que quiseres manter fora do Git. O `containerDisk` da VM não guarda dados entre recriações.
+
+```powershell
+crc stop
+crc delete
+crc config set preset openshift
+crc config set cpus 6
+crc config set memory 20480
+crc config set disk-size 80
+crc setup
+crc start
+```
+
+O `crc start` pede o pull secret da tua conta Red Hat. Os valores acima reproduzem o tamanho usado nesta POC: 6 vCPUs, 20 GiB de memória e 80 GiB de disco. O CRC tem de estar parado para mudares os recursos da instância.
+
+Para executar a VM desta POC, expõe as extensões de virtualização à máquina `crc` no Hyper-V. Faz isto no **PowerShell como administrador**, com o CRC parado, depois de a VM `crc` ter sido criada:
+
+```powershell
+crc stop
+Set-VMProcessor -VMName crc -ExposeVirtualizationExtensions $true
+crc start
+```
+
+Este uso de virtualização aninhada no CRC é experimental e pode depender do hardware. Se a VM do Hyper-V tiver outro nome, confirma-o com `Get-VM` antes de executar `Set-VMProcessor`.
+
+Ativa o cliente `oc` no PowerShell e obtém as credenciais atuais do cluster novo. Usa o login de administrador apresentado por `crc console --credentials`; a senha antiga deixa de valer depois de `crc delete`.
+
+```powershell
+& crc oc-env | Invoke-Expression
+crc console --credentials
+oc config use-context crc-admin
 oc whoami
-oc get hyperconverged -A
+```
+
+Os comandos seguintes são executados na raiz deste repositório. No WSL, se usas a função `occrc` para chamar o `oc` do Windows, troca `oc` por `occrc`. Confirma que estás ligado ao cluster novo com permissões de administrador antes de instalar os operadores.
+
+## Instalar os operadores
+
+Instala primeiro o OpenShift Virtualization:
+
+```bash
+oc apply -f bootstrap/virtualization-operator.yaml
+oc get csv -n openshift-cnv
+```
+
+Quando o CSV do operador estiver em `Succeeded`, cria o HyperConverged e espera até que os componentes estejam prontos:
+
+```bash
+oc apply -f bootstrap/hyperconverged.yaml
+oc get hyperconverged -n openshift-cnv
 oc get pods -n openshift-cnv
+oc describe node crc
 ```
 
-## 2. Criar a VM
+No resultado do nó, confirma que `devices.kubevirt.io/kvm` tem capacidade disponível. Se esse valor for zero, a VM desta POC não conseguirá arrancar.
 
-```bash
-oc apply -f bootstrap/namespace.yaml
-oc apply -f vms/vm01.yaml
-oc get vm,vmi -n sandbox
-```
-
-O namespace inclui a label que permite ao OpenShift GitOps gerir os seus recursos. A VM usa um `containerDisk` CirrOS, 1 vCPU e 128 MiB de memória, sem armazenamento persistente.
-
-## 3. Publicar os manifests
-
-Configura o remoto `origin` com o URL do teu repositório e substitui `repoURL` em `applications/sandbox-vms.yaml` pelo mesmo URL. Depois:
-
-```bash
-git add .gitignore README.md bootstrap vms applications
-git commit -m "Add sandbox VM"
-git branch -M main
-git push -u origin main
-```
-
-## 4. Instalar o GitOps
-
-Se o operador ainda não estiver instalado, aplica a subscrição e espera pela instância padrão do Argo CD:
+Instala o GitOps e cria o namespace da demonstração:
 
 ```bash
 oc apply -f bootstrap/gitops-operator.yaml
+oc apply -f bootstrap/namespace.yaml
 oc get csv -n openshift-gitops-operator
 oc get pods -n openshift-gitops
 ```
 
-O namespace `openshift-gitops` é criado pelo operador. Aguarda até que os pods estejam prontos antes de criar a Application.
-No CRC, os pods podem ficar `Pending` por falta de CPU; este laboratório precisou de 6 vCPUs.
+Espera até que o CSV do GitOps esteja em `Succeeded` e os pods de `openshift-gitops` estejam prontos. O operador cria esse namespace e a instância padrão do Argo CD.
 
-Para abrir o Argo CD e obter a senha inicial:
+## Ativar as Applications
+
+As duas Applications apontam para `https://github.com/flmora/aapautomation.git`, na branch `main`. Este repositório está público. Publica primeiro os dois manifests novos de `bootstrap/` no GitHub para que a reconstrução futura parta do repositório completo. Se usares outro repositório, altera `repoURL` nos dois ficheiros de `applications/` e publica os manifests no Git antes de os aplicar.
+
+```bash
+oc apply -f applications/sandbox-vms.yaml
+oc apply -f applications/sandbox-web.yaml
+oc get applications -n openshift-gitops
+oc get vm,vmi -n sandbox
+oc get route sandbox-web -n sandbox
+```
+
+As Applications devem aparecer como `Synced` e `Healthy`. Abre a Route com `http://` para ver a página. Se uma Application falhar, consulta `oc describe application sandbox-vms -n openshift-gitops` ou usa o nome `sandbox-web`.
+
+Se o repositório passar a ser privado, regista-o em **Settings → Repositories** no Argo CD com credenciais GitHub de leitura. O Client ID e o Client secret de uma conta de serviço Red Hat não dão acesso ao GitHub.
+
+## Entrar no Argo CD
+
+Obtém o endereço e a senha da conta local `admin`:
 
 ```bash
 oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='https://{.spec.host}{"\n"}'
 oc get secret openshift-gitops-cluster -n openshift-gitops -o jsonpath='{.data.admin\.password}' | base64 -d; echo
 ```
 
-Abre o endereço apresentado e entra nos campos **Username/Password** com o utilizador `admin` e a senha do segundo comando. Esta é a conta local do Argo CD, diferente do `kubeadmin` do OpenShift; não uses **Log in via OpenShift**. No WSL, se usas a função `occrc` para aceder ao CRC, substitui `oc` por `occrc` nestes comandos.
+Na página de entrada, usa **Username/Password** com o utilizador `admin` e a senha apresentada. Esta conta pertence ao Argo CD; `kubeadmin` é uma conta do OpenShift e não mostra automaticamente as Applications no Argo CD.
 
-Se o repositório for privado, abre a interface do Argo CD (`oc get route openshift-gitops-server -n openshift-gitops`) e adiciona o repositório em **Settings → Repositories**, com um token GitHub de leitura. Faz isso antes de criar a Application. O Client ID e o Client secret da Red Hat não dão acesso ao GitHub.
+## Fazer uma alteração
 
-## 5. Ativar o GitOps
-
-```bash
-oc apply -f applications/sandbox-vms.yaml
-oc get application sandbox-vms -n openshift-gitops
-oc get vm,vmi -n sandbox
-```
-
-A Application deverá ficar `Synced` e `Healthy`. Em caso de erro, consulta `oc describe application sandbox-vms -n openshift-gitops`.
-
-## 6. Testar sincronização e reconciliação
-
-Altera `cores: 1` para `cores: 2` em `vms/vm01.yaml`, faz commit e push. Confirma a alteração no cluster:
+Altera o HTML em `apps/web/web.yaml`, faz commit e push para `main`. A Application `sandbox-web` sincroniza o ConfigMap e a página é atualizada sem voltar a executar `oc apply`:
 
 ```bash
-git add vms/vm01.yaml
-git commit -m "Set VM to 2 CPUs"
+git add apps/web/web.yaml
+git commit -m "Update sandbox page"
 git push
-oc get vm sandbox-vm01 -n sandbox -o jsonpath='{.spec.template.spec.domain.cpu.cores}{"\n"}'
+oc get application sandbox-web -n openshift-gitops
 ```
 
-A VM fica com a configuração nova, mas a instância em execução conserva a CPU antiga até ser reiniciada. Reinicia-a na consola do OpenShift em **Virtualization → VirtualMachines → sandbox-vm01 → Actions → Restart**. Depois, confirma com `oc get vmi sandbox-vm01 -n sandbox -o jsonpath='{.spec.domain.cpu.cores}{"\n"}'`.
-
-Para testar `selfHeal`, muda temporariamente o valor no cluster e volta a consultá-lo após a reconciliação:
+O mesmo fluxo vale para `vms/vm01.yaml`. Se mudares `cores: 1` para `cores: 2`, o Argo CD atualiza a definição da VM. A instância que já está a correr mantém a CPU anterior até reiniciares a VM em **Virtualization → VirtualMachines → sandbox-vm01 → Actions → Restart**. Podes comparar os valores com:
 
 ```bash
-oc patch vm sandbox-vm01 -n sandbox --type=json -p='[{"op":"replace","path":"/spec/template/spec/domain/cpu/cores","value":1}]'
 oc get vm sandbox-vm01 -n sandbox -o jsonpath='{.spec.template.spec.domain.cpu.cores}{"\n"}'
+oc get vmi sandbox-vm01 -n sandbox -o jsonpath='{.spec.domain.cpu.cores}{"\n"}'
 ```
 
-O valor deve voltar a `2`.
+As Applications têm sincronização automática, `selfHeal` e `prune`. Uma alteração manual num recurso gerido pelo Argo CD é revertida para o conteúdo do Git; a remoção de um manifesto do Git também remove o recurso correspondente do cluster.
 
-## 7. Adicionar uma segunda Application
+## Acrescentar recursos ou outra Application
 
-`applications/sandbox-web.yaml` aponta para `apps/web/`. Essa pasta contém a página, o servidor web, o Service e a Route. Publica os ficheiros no Git antes de criar a Application:
+Um manifesto novo em `vms/` entra na Application `sandbox-vms`. Recursos relacionados com a página podem ser acrescentados em `apps/web/`. Depois de fazer commit e push, o Argo CD aplica essas alterações.
 
-```bash
-git add apps/web applications/sandbox-web.yaml README.md
-git commit -m "Add sandbox web app"
-git push
-oc apply -f applications/sandbox-web.yaml
-oc get applications -n openshift-gitops
-oc get route sandbox-web -n sandbox
-```
-
-Abre o endereço da Route com `http://`. Para testar outra sincronização, altera o texto em `apps/web/web.yaml`, faz commit e push. O Argo CD atualiza o ConfigMap e a página.
-
-Um novo YAML diretamente em `vms/` entra na Application `sandbox-vms`. Para uma pasta nova, cria outra Application como `sandbox-web` e aplica o ficheiro de `applications/` uma vez; depois as alterações dessa pasta passam a ser sincronizadas automaticamente.
+Para gerir uma pasta nova, cria um manifesto em `applications/` com outro nome e com `spec.source.path` a apontar para essa pasta. Publica ambos os ficheiros no Git e aplica a nova Application uma vez com `oc apply -f applications/NOME.yaml`. A partir daí, as alterações nessa pasta seguem o mesmo fluxo de commit e push.
