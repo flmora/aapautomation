@@ -12,7 +12,7 @@ spec:
     spec:
       domain:
         cpu:
-          cores: 2
+          cores: 1
         resources:
           requests:
             memory: 128Mi
