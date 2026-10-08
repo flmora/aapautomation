@@ -12,10 +12,10 @@ spec:
     spec:
       domain:
         cpu:
-          cores: 2
+          cores: 1
         resources:
           requests:
-            memory: 4Gi
+            memory: 128Mi
         devices:
           disks:
             - name: rootdisk
@@ -30,4 +30,4 @@ spec:
       volumes:
         - name: rootdisk
           containerDisk:
-            image: quay.io/containerdisks/fedora:latest
+            image: quay.io/kubevirt/cirros-container-disk-demo:latest
