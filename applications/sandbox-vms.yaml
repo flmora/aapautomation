@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sandbox-vms
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://git.example.com/infra/sandbox-vms.git
+    targetRevision: main
+    path: vms
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sandbox
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
