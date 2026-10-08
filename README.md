@@ -1,6 +1,6 @@
 # VM de sandbox com OpenShift GitOps
 
-POC para gerir uma VM no OpenShift Virtualization a partir de um repositório Git. Assume que o cluster está acessível com `oc` e que OpenShift Virtualization e OpenShift GitOps já estão instalados.
+POC para gerir uma VM no OpenShift Virtualization a partir de um repositório Git. Assume que o cluster está acessível com `oc` e que OpenShift Virtualization já está instalado.
 
 ## 1. Confirmar o ambiente
 
@@ -8,7 +8,6 @@ POC para gerir uma VM no OpenShift Virtualization a partir de um repositório Gi
 oc whoami
 oc get hyperconverged -A
 oc get pods -n openshift-cnv
-oc get pods -n openshift-gitops
 ```
 
 ## 2. Criar a VM
@@ -32,9 +31,22 @@ git branch -M main
 git push -u origin main
 ```
 
-Se o repositório for privado, configura o acesso no Argo CD antes de criar a Application.
+## 4. Instalar o GitOps
 
-## 4. Ativar o GitOps
+Se o operador ainda não estiver instalado, aplica a subscrição e espera pela instância padrão do Argo CD:
+
+```bash
+oc apply -f bootstrap/gitops-operator.yaml
+oc get csv -n openshift-gitops-operator
+oc get pods -n openshift-gitops
+```
+
+O namespace `openshift-gitops` é criado pelo operador. Aguarda até que os pods estejam prontos antes de criar a Application.
+No CRC, os pods podem ficar `Pending` por falta de CPU; este laboratório precisou de 6 vCPUs.
+
+Se o repositório for privado, abre a interface do Argo CD (`oc get route openshift-gitops-server -n openshift-gitops`) e adiciona o repositório em **Settings → Repositories**, com um token GitHub de leitura. Faz isso antes de criar a Application. O Client ID e o Client secret da Red Hat não dão acesso ao GitHub.
+
+## 5. Ativar o GitOps
 
 ```bash
 oc apply -f applications/sandbox-vms.yaml
@@ -44,7 +56,7 @@ oc get vm,vmi -n sandbox
 
 A Application deverá ficar `Synced` e `Healthy`. Em caso de erro, consulta `oc describe application sandbox-vms -n openshift-gitops`.
 
-## 5. Testar sincronização e reconciliação
+## 6. Testar sincronização e reconciliação
 
 Altera `cores: 1` para `cores: 2` em `vms/vm01.yaml`, faz commit e push. Confirma a alteração no cluster:
 
