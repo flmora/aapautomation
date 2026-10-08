@@ -1,6 +1,6 @@
-# VM de sandbox com OpenShift GitOps
+# Sandbox com OpenShift GitOps
 
-POC para gerir uma VM no OpenShift Virtualization a partir de um repositório Git. Assume que o cluster está acessível com `oc` e que OpenShift Virtualization já está instalado.
+POC para gerir uma VM e uma página web no OpenShift a partir de um repositório Git. Assume que o cluster está acessível com `oc` e que OpenShift Virtualization já está instalado.
 
 ## 1. Confirmar o ambiente
 
@@ -18,7 +18,7 @@ oc apply -f vms/vm01.yaml
 oc get vm,vmi -n sandbox
 ```
 
-O namespace inclui a label que permite ao OpenShift GitOps gerir os seus recursos. A VM usa um `containerDisk` CirrOS, 2 vCPUs e 128 MiB de memória, sem armazenamento persistente.
+O namespace inclui a label que permite ao OpenShift GitOps gerir os seus recursos. A VM usa um `containerDisk` CirrOS, 1 vCPU e 128 MiB de memória, sem armazenamento persistente.
 
 ## 3. Publicar os manifests
 
@@ -67,11 +67,11 @@ A Application deverá ficar `Synced` e `Healthy`. Em caso de erro, consulta `oc 
 
 ## 6. Testar sincronização e reconciliação
 
-Altera `cores: 2` para `cores: 1` em `vms/vm01.yaml`, faz commit e push. Confirma a alteração no cluster:
+Altera `cores: 1` para `cores: 2` em `vms/vm01.yaml`, faz commit e push. Confirma a alteração no cluster:
 
 ```bash
 git add vms/vm01.yaml
-git commit -m "Set VM to 1 CPU"
+git commit -m "Set VM to 2 CPUs"
 git push
 oc get vm sandbox-vm01 -n sandbox -o jsonpath='{.spec.template.spec.domain.cpu.cores}{"\n"}'
 ```
@@ -81,8 +81,25 @@ A VM fica com a configuração nova, mas a instância em execução conserva a C
 Para testar `selfHeal`, muda temporariamente o valor no cluster e volta a consultá-lo após a reconciliação:
 
 ```bash
-oc patch vm sandbox-vm01 -n sandbox --type=json -p='[{"op":"replace","path":"/spec/template/spec/domain/cpu/cores","value":2}]'
+oc patch vm sandbox-vm01 -n sandbox --type=json -p='[{"op":"replace","path":"/spec/template/spec/domain/cpu/cores","value":1}]'
 oc get vm sandbox-vm01 -n sandbox -o jsonpath='{.spec.template.spec.domain.cpu.cores}{"\n"}'
 ```
 
-O valor deve voltar a `1`.
+O valor deve voltar a `2`.
+
+## 7. Adicionar uma segunda Application
+
+`applications/sandbox-web.yaml` aponta para `apps/web/`. Essa pasta contém a página, o servidor web, o Service e a Route. Publica os ficheiros no Git antes de criar a Application:
+
+```bash
+git add apps/web applications/sandbox-web.yaml README.md
+git commit -m "Add sandbox web app"
+git push
+oc apply -f applications/sandbox-web.yaml
+oc get applications -n openshift-gitops
+oc get route sandbox-web -n sandbox
+```
+
+Abre o endereço da Route com `http://`. Para testar outra sincronização, altera o texto em `apps/web/web.yaml`, faz commit e push. O Argo CD atualiza o ConfigMap e a página.
+
+Um novo YAML diretamente em `vms/` entra na Application `sandbox-vms`. Para uma pasta nova, cria outra Application como `sandbox-web` e aplica o ficheiro de `applications/` uma vez; depois as alterações dessa pasta passam a ser sincronizadas automaticamente.
