@@ -101,6 +101,23 @@ As Applications devem aparecer como `Synced` e `Healthy`. Abre a Route com `http
 
 Se o repositório passar a ser privado, regista-o em **Settings → Repositories** no Argo CD com credenciais GitHub de leitura. O Client ID e o Client secret de uma conta de serviço Red Hat não dão acesso ao GitHub.
 
+## Aceder à VM por SSH
+
+Para aceder à `sandbox-vm01` a partir do próprio computador, abre um PowerShell no Windows e encaminha a porta SSH da VM para `127.0.0.1:22322`:
+
+```powershell
+$pod = oc get pod -n sandbox -l kubevirt.io/domain=sandbox-vm01 -o jsonpath='{.items[0].metadata.name}'
+oc port-forward -n sandbox "pod/$pod" 22322:22
+```
+
+Deixa essa janela aberta. Noutro PowerShell, entra na VM:
+
+```powershell
+ssh -p 22322 cirros@127.0.0.1
+```
+
+A senha padrão desta imagem de teste é `gocubsgo`. O túnel termina com `Ctrl+C` na primeira janela. Se reiniciares a VM, executa o primeiro bloco novamente para obter o nome do pod atual. Esta ligação fica apenas no teu computador; não cria uma porta pública no CRC.
+
 ## Entrar no Argo CD
 
 Obtém o endereço e a senha da conta local `admin`:
