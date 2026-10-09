@@ -118,6 +118,19 @@ ssh -p 22322 cirros@127.0.0.1
 
 A senha padrão desta imagem de teste é `gocubsgo`. O túnel termina com `Ctrl+C` na primeira janela. Se reiniciares a VM, executa o primeiro bloco novamente para obter o nome do pod atual. Esta ligação fica apenas no teu computador; não cria uma porta pública no CRC.
 
+### Se o cluster estiver remoto
+
+O mesmo acesso funciona num cluster OpenShift fora do teu computador, desde que consigas chegar à API e tenhas permissões para aceder à VM. Faz `oc login` nesse cluster e, no teu terminal, abre o túnel:
+
+```bash
+pod=$(oc get pod -n sandbox -l kubevirt.io/domain=sandbox-vm01 -o jsonpath='{.items[0].metadata.name}')
+oc port-forward -n sandbox "pod/$pod" 22322:22
+```
+
+Noutro terminal, usa `ssh -p 22322 cirros@127.0.0.1`. A ligação SSH passa pela API do OpenShift; o IP da VM não precisa de estar acessível diretamente na tua rede. Este método serve para acesso pontual e o terminal do `port-forward` tem de ficar aberto.
+
+Para acesso regular a partir da rede, associa a VM a um `Service` do tipo `NodePort` ou `LoadBalancer` interno. O `NodePort` exige acesso de rede aos nós; o `LoadBalancer` depende da infraestrutura do cluster. Antes de expor o SSH dessa forma, configura uma chave pública na VM e deixa de usar a senha padrão da CirrOS. Consulta as [opções de acesso SSH a VMs na documentação do OpenShift Virtualization](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/managing-vms).
+
 ## Entrar no Argo CD
 
 Obtém o endereço e a senha da conta local `admin`:
