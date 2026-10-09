@@ -18,6 +18,8 @@ A VM que criei usa um `containerDisk` CirrOS, 1 vCPU e 128 MiB de memória. O di
 
 ## Recriar o CRC no Windows
 
+## *Caso não precise recriar no windows ou outro computador local e já tenhas acesso ao OC, pule para parte: Ativar Applications*
+
 Uso **PowerShell no Windows** para recriar o CRC. Antes de executar `crc delete`, guardo fora do cluster qualquer dado que queira conservar: esse comando apaga o cluster e todos os recursos nele. O `containerDisk` da VM não guarda dados entre recriações.
 
 ```powershell
