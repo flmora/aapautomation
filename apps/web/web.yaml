@@ -23,7 +23,7 @@ metadata:
   name: sandbox-web
   namespace: sandbox
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app: sandbox-web
